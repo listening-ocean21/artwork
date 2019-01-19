@@ -1,0 +1,316 @@
+pragma solidity ^0.4.24;
+
+contract CinsTraceability
+{
+    struct Commodity
+    {
+        address owner;
+        address holder;
+        // Uniquely identifies this product
+        bytes32 commodityCode;
+        string commodityName;
+        uint256 productionDate;
+        uint256 lastestDate;
+        address temHighestBidder;
+        uint priceNow;
+        bool isValid;
+        address[] agents;
+        bytes32[] transactionID;
+        // Set to true at the end, disallows any change,only can be altered by the holder
+        bool auctionEnded;
+    }
+    
+    mapping(string => Commodity) private commodityByName;
+    
+    mapping(bytes32 => Commodity) private commoditiesByCode;
+    
+    bytes32[] commodityCodeList;
+    
+    // PAY ATTENTION:
+    // MUST RUN THOSE FUNCTIONS BEFORE ANY STEPS!!!!!
+    
+    /////////////////////////////////////////////////////////
+    //////////UPLOAD THE INFORMATION OF COMMODITY////////////
+    /////////////////////////////////////////////////////////
+    
+    function setCommodityCode(string _commodityName,uint _priceNow) public 
+    {
+        bytes32 commodityCode;
+        
+        commodityCode = keccak256(keccak256(msg.sender,
+        msg.sender,
+        _priceNow,
+        _commodityName,
+        now));
+        //commoditiesByCode[commodityCode].owner = msg.sender;
+        //commoditiesByCode[commodityCode].holder = msg.sender;
+        commodityByName[_commodityName].commodityCode = commodityCode;
+        commoditiesByCode[commodityCode].commodityCode = commodityCode;
+        commoditiesByCode[commodityCode].commodityName = _commodityName;
+        
+    }
+    
+    // Get the unique code for commodity
+    function getCommodityCode(string _commodityName) public constant returns(bytes32)
+    {
+        return commodityByName[_commodityName].commodityCode;
+    }
+    
+    function setCommodityCodeList(bytes32 _commodityCode) public returns(bool)
+    {
+        commodityCodeList.push(_commodityCode);
+        
+        return true;
+    }
+    
+    function setCommodityOwnerHolderName(address _holder,bytes32 _commodityCode,string _commodityName) public returns(bool)
+    {
+    
+        commoditiesByCode[_commodityCode].owner = msg.sender;
+        commoditiesByCode[_commodityCode].holder = _holder;
+       commodityByName[_commodityName] = commoditiesByCode[_commodityCode];
+        
+        return true;
+    }
+    
+    function setCommodityDatePrice(bytes32 _commodityCode,uint _priceNow) public returns(bool)
+    {
+        commoditiesByCode[_commodityCode].productionDate = now;
+        commoditiesByCode[_commodityCode].lastestDate = now;
+        commoditiesByCode[_commodityCode].priceNow = _priceNow;
+        
+        return true;
+    }
+    
+    function setCommodityElsePara(bytes32 _commodityCode) public returns(bool)
+    {
+        commoditiesByCode[_commodityCode].temHighestBidder = 0;
+        commoditiesByCode[_commodityCode].isValid = true;
+        commoditiesByCode[_commodityCode].auctionEnded =true;
+        
+        return true;
+    }
+    
+    function setCommodityAgents(bytes32 _commodityCode) public returns(bool)
+    {
+        commoditiesByCode[_commodityCode].agents.push(msg.sender);
+        
+        return true;
+    }
+    
+    function setCommodityTId(bytes32 _commodityCode) public returns(bool)
+    {
+        commoditiesByCode[_commodityCode].transactionID.push(keccak256(keccak256(commoditiesByCode[_commodityCode].commodityCode,
+        commoditiesByCode[_commodityCode].holder,
+        commoditiesByCode[_commodityCode].priceNow,
+        msg.sender,
+        now)));
+        
+        return true;
+    }
+    
+    /////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////
+    
+    function getCommodityCodeList() public constant returns(bytes32[])
+    {
+        return commodityCodeList;
+    }
+    
+    // Change the state of commodity (only can be used by the holder)
+    function changeCommodityState(bytes32 _commodityCode,bool _state) public returns (bool)
+    {
+        // Make sure msg.sender is the holder of the commodity
+        require(commoditiesByCode[_commodityCode].holder == msg.sender);
+        
+        commoditiesByCode[_commodityCode].auctionEnded = _state;
+        
+        return true;
+    }
+    
+     // function for bidding
+    function aution(bytes32 _commodityCode,uint _bidPrice) public returns (bool)
+    {
+        // Make sure the auction is still running
+        require(commoditiesByCode[_commodityCode].auctionEnded == false);
+        
+        // bidPrice should be higher than current price
+        require(_bidPrice > commoditiesByCode[_commodityCode].priceNow);
+        
+        commoditiesByCode[_commodityCode].priceNow = _bidPrice;
+        
+        // Set temBidder to msg.sender
+        commoditiesByCode[_commodityCode].temHighestBidder = msg.sender;
+        
+        return true;
+    }
+    
+    /////////////////////////////////////////////////////////
+    /////////////////////AUCTION END/////////////////////////
+    /////////////////////////////////////////////////////////
+    
+    // Transfer commodity to someone else,only can be controled by the holder
+    function auctionEnd1(bytes32 _commodityCode) public returns(bool)
+    {
+        // Make sure msg.sender is the holder of the commodity
+        require(commoditiesByCode[_commodityCode].holder == msg.sender);
+        
+        // Make sure the auction is ended
+        require(commoditiesByCode[_commodityCode].auctionEnded == true);
+        
+        // Generate transactionID
+        bytes32 transactionId;
+        
+        transactionId = keccak256(keccak256(_commodityCode,
+        commoditiesByCode[_commodityCode].temHighestBidder,
+        commoditiesByCode[_commodityCode].priceNow,
+        now));
+        
+        commoditiesByCode[_commodityCode].transactionID.push(transactionId);
+        
+        return true;
+    }
+    
+    function auctionEnd2(bytes32 _commodityCode) public returns(bool)
+    {
+        // Make sure msg.sender is the holder of the commodity
+        require(commoditiesByCode[_commodityCode].holder == msg.sender);
+        
+        // Make sure the auction is ended
+        require(commoditiesByCode[_commodityCode].auctionEnded == true);
+        
+        address nextHolder = commoditiesByCode[_commodityCode].temHighestBidder;
+        
+        commoditiesByCode[_commodityCode].holder = nextHolder;
+        commoditiesByCode[_commodityCode].agents.push(nextHolder);
+        commoditiesByCode[_commodityCode].temHighestBidder = 0;
+        commoditiesByCode[_commodityCode].auctionEnded = true;
+    }
+    
+    /////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////
+    
+    /////////////////////////////////////////////////////////
+    ///////////////////////TRANSFER//////////////////////////
+    /////////////////////////////////////////////////////////
+    
+    function transfer1(bytes32 _commodityCode,address _buyer,uint _priceNow) public returns (bool)
+    {
+        // Check if there is a buyer or commodityCode
+        if(_buyer == 0 || _commodityCode == 0)
+        {
+            revert();
+        }
+        
+        // Transfer string to bytes, and use .length check
+        // the length of string
+        if(bytes(commoditiesByCode[_commodityCode].commodityName).length == 0)
+        {
+            revert();
+        }
+        
+        // Put this address into the queue of agents
+        commoditiesByCode[_commodityCode].agents.push(_buyer);
+        
+        // return the order of the transaction
+        return true;
+    }
+    
+    function transfer2(bytes32 _commodityCode,address _buyer,uint _priceNow) public returns (bool)
+    {
+        // The unique identity of the transaction
+        bytes32 transactionId;
+        
+        // Check if there is a buyer or commodityCode
+        if(_buyer == 0 || _commodityCode == 0)
+        {
+            revert();
+        }
+        
+        // Transfer string to bytes, and use .length check
+        // the length of string
+        if(bytes(commoditiesByCode[_commodityCode].commodityName).length == 0)
+        {
+            revert();
+        }
+        
+        // Unique identity of a transaction
+        transactionId = keccak256(keccak256(_commodityCode,_buyer,_priceNow,now));
+        
+        // push this transactionID into the queue of transactionID
+        commoditiesByCode[_commodityCode].transactionID.push(transactionId);
+    }
+    
+    function transfer3(bytes32 _commodityCode,address _buyer,uint _priceNow) public returns (bool)
+    {
+        // Check if there is a buyer or commodityCode
+        if(_buyer == 0 || _commodityCode == 0)
+        {
+            revert();
+        }
+        
+        // Transfer string to bytes, and use .length check
+        // the length of string
+        if(bytes(commoditiesByCode[_commodityCode].commodityName).length == 0)
+        {
+            revert();
+        }
+        
+        // Change the holder right to this buyer
+        commoditiesByCode[_commodityCode].holder = _buyer;
+        // Change the price to the lastest price
+        commoditiesByCode[_commodityCode].priceNow = _priceNow;
+        // Change the state of the commodity
+        commoditiesByCode[_commodityCode].auctionEnded = true;
+    }
+    
+    /////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////
+    
+    // Query the information of the commodity
+    
+     
+    function queryCommodity1(bytes32 _commodityCode) public constant returns(address,
+    address )
+    {
+        return (commoditiesByCode[_commodityCode].owner,
+        commoditiesByCode[_commodityCode].holder
+        
+        );
+    }
+    
+    function queryCommodity3(bytes32 _commodityCode) public constant returns(
+ 
+    uint256,
+    uint256,
+    address, 
+    bytes32,
+    string)
+    {
+        return (
+        commoditiesByCode[_commodityCode].productionDate,
+        commoditiesByCode[_commodityCode].lastestDate,
+        commoditiesByCode[_commodityCode].temHighestBidder,
+        commoditiesByCode[_commodityCode].commodityCode,
+        commoditiesByCode[_commodityCode].commodityName
+        );
+    }
+    
+    function queryCommodity2(bytes32 _commodityCode) public constant returns(
+        uint,
+        bool,
+        bool,
+        address[],
+        bytes32[])
+        {
+            return(commoditiesByCode[_commodityCode].priceNow,
+            commoditiesByCode[_commodityCode].isValid,
+            commoditiesByCode[_commodityCode].auctionEnded,
+            commoditiesByCode[_commodityCode].agents,
+            commoditiesByCode[_commodityCode].transactionID
+                );
+        }
+}
